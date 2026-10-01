@@ -1,0 +1,14 @@
+{
+  "concepts": [
+    {"id": "D001", "name": "Diabetes", "source": "src1", "synonyms": []}
+  ],
+  "hierarchy": [
+    {"parent": "D999", "child": "D001", "source": "src1"}
+  ],
+  "relations": [
+    {"subject": "D001", "relation": "treats", "object": "D888", "source": "src1"}
+  ],
+  "mappings": [
+    {"target_id": "EXT:1", "concept_id": "D777", "source": "src1"}
+  ]
+}

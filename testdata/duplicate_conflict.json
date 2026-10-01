@@ -1,0 +1,9 @@
+{
+  "concepts": [
+    {"id": "D001", "name": "Diabetes", "source": "src1", "synonyms": []},
+    {"id": "D001", "name": "CompletelyDifferent", "source": "src2", "synonyms": []}
+  ],
+  "hierarchy": [],
+  "relations": [],
+  "mappings": []
+}

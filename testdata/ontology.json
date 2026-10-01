@@ -1,0 +1,27 @@
+{
+  "concepts": [
+    {"id": "D010", "name": "Disease", "source": "snomed_demo", "synonyms": ["DIS", "Disorder"]},
+    {"id": "D001", "name": "Diabetes", "source": "snomed_demo", "synonyms": ["DM", "Diabetes mellitus"]},
+    {"id": "D001", "name": "Diabetes", "source": "icd_demo", "synonyms": ["Diabetes mellitus"]},
+    {"id": "D003", "name": "Type2Diabetes", "source": "icd_demo", "synonyms": ["T2DM", "NIDDM"]},
+    {"id": "D002", "name": "Type1Diabetes", "source": "icd_demo", "synonyms": ["T1DM"]},
+    {"id": "D020", "name": "Metformin", "source": "snomed_demo", "synonyms": ["Metformin HCl"]},
+    {"id": "D021", "name": "Insulin", "source": "rxnorm_demo", "synonyms": []}
+  ],
+  "hierarchy": [
+    {"parent": "D010", "child": "D001", "source": "snomed_demo"},
+    {"parent": "D001", "child": "D003", "source": "icd_demo"},
+    {"parent": "D001", "child": "D002", "source": "icd_demo"},
+    {"parent": "D010", "child": "D020", "source": "snomed_demo"}
+  ],
+  "relations": [
+    {"subject": "D020", "relation": "treats", "object": "D003", "source": "snomed_demo"},
+    {"subject": "D021", "relation": "treats", "object": "D001", "source": "rxnorm_demo"}
+  ],
+  "mappings": [
+    {"target_id": "SNOMED:73211009", "concept_id": "D001", "source": "snomed_demo"},
+    {"target_id": "ICD10:E11", "concept_id": "D003", "source": "icd_demo"},
+    {"target_id": "ICD10:E10", "concept_id": "D002", "source": "icd_demo"},
+    {"target_id": "RXNORM:6809", "concept_id": "D020", "source": "rxnorm_demo"}
+  ]
+}

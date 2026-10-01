@@ -1,0 +1,14 @@
+{
+  "concepts": [
+    {"id": "A", "name": "Alpha", "source": "src1", "synonyms": []},
+    {"id": "B", "name": "Beta", "source": "src1", "synonyms": []},
+    {"id": "C", "name": "Gamma", "source": "src1", "synonyms": []}
+  ],
+  "hierarchy": [
+    {"parent": "A", "child": "B", "source": "src1"},
+    {"parent": "B", "child": "C", "source": "src1"},
+    {"parent": "C", "child": "A", "source": "src1"}
+  ],
+  "relations": [],
+  "mappings": []
+}
