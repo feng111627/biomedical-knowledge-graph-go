@@ -1,0 +1,18 @@
+{
+  "name": "dangling-sample",
+  "concepts": [
+    {"id": "A", "label": "alpha", "source": "src-x"}
+  ],
+  "synonyms": [
+    {"concept_id": "GHOST", "term": "phantom", "source": "src-x"}
+  ],
+  "parents": [
+    {"concept_id": "A", "parent_id": "MISSING_PARENT", "source": "src-x"}
+  ],
+  "relations": [
+    {"id": "R9", "subject_id": "A", "predicate": "treats", "object_id": "NOPE", "source": "src-x"}
+  ],
+  "mappings": [
+    {"source": "ext", "external_id": "EXT:1", "concept_id": "VANISHED", "term": "gone"}
+  ]
+}

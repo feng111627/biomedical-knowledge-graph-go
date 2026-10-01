@@ -1,0 +1,14 @@
+{
+  "name": "same-source-conflict-sample",
+  "concepts": [
+    {"id": "C1", "label": "concept one", "source": "src-a"},
+    {"id": "C2", "label": "concept two", "source": "src-a"}
+  ],
+  "synonyms": [],
+  "parents": [],
+  "relations": [],
+  "mappings": [
+    {"source": "src-a", "external_id": "DUP:1", "concept_id": "C1", "term": "one"},
+    {"source": "src-a", "external_id": "DUP:1", "concept_id": "C2", "term": "two"}
+  ]
+}

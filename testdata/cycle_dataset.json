@@ -1,0 +1,16 @@
+{
+  "name": "cycle-sample",
+  "concepts": [
+    {"id": "A", "label": "alpha", "source": "src-x"},
+    {"id": "B", "label": "beta",  "source": "src-x"},
+    {"id": "C", "label": "gamma", "source": "src-x"}
+  ],
+  "synonyms": [],
+  "parents": [
+    {"concept_id": "A", "parent_id": "B", "source": "src-x"},
+    {"concept_id": "B", "parent_id": "C", "source": "src-x"},
+    {"concept_id": "C", "parent_id": "A", "source": "src-y"}
+  ],
+  "relations": [],
+  "mappings": []
+}

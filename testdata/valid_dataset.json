@@ -1,0 +1,46 @@
+{
+  "name": "biomedical-sample",
+  "concepts": [
+    {"id": "DISEASE",  "label": "disease",       "source": "local-ontology"},
+    {"id": "RESPDIS",  "label": "respiratory disease", "source": "local-ontology"},
+    {"id": "INFECT",   "label": "infectious disease",  "source": "local-ontology"},
+    {"id": "COLD",     "label": "common cold",   "source": "local-ontology"},
+    {"id": "FLU",      "label": "influenza",     "source": "local-ontology"},
+    {"id": "SYMPTOM",  "label": "symptom",       "source": "local-ontology"},
+    {"id": "CHILLS",   "label": "chills",        "source": "local-ontology"},
+    {"id": "DRUG",     "label": "drug",          "source": "local-ontology"},
+    {"id": "ANTIVIRAL","label": "antiviral drug","source": "local-ontology"},
+    {"id": "OSELTAMIVIR","label": "oseltamivir", "source": "local-ontology"}
+  ],
+  "synonyms": [
+    {"concept_id": "COLD", "term": "acute coryza",   "source": "local-terms"},
+    {"concept_id": "COLD", "term": "cold",           "source": "local-terms"},
+    {"concept_id": "FLU",  "term": "flu",            "source": "local-terms"},
+    {"concept_id": "FLU",  "term": "seasonal flu",   "source": "local-terms"},
+    {"concept_id": "CHILLS","term": "cold",          "source": "nursing-notes"},
+    {"concept_id": "OSELTAMIVIR","term": "Tamiflu",  "source": "drugbank-lite"},
+    {"concept_id": "OSELTAMIVIR","term": "oseltamivir phosphate","source": "drugbank-lite"}
+  ],
+  "parents": [
+    {"concept_id": "RESPDIS",   "parent_id": "DISEASE", "source": "local-ontology"},
+    {"concept_id": "INFECT",    "parent_id": "DISEASE", "source": "local-ontology"},
+    {"concept_id": "COLD",      "parent_id": "RESPDIS", "source": "local-ontology"},
+    {"concept_id": "COLD",      "parent_id": "INFECT",  "source": "local-ontology"},
+    {"concept_id": "FLU",       "parent_id": "RESPDIS", "source": "local-ontology"},
+    {"concept_id": "FLU",       "parent_id": "INFECT",  "source": "mesh-lite"},
+    {"concept_id": "CHILLS",    "parent_id": "SYMPTOM", "source": "local-ontology"},
+    {"concept_id": "ANTIVIRAL", "parent_id": "DRUG",    "source": "local-ontology"},
+    {"concept_id": "OSELTAMIVIR","parent_id": "ANTIVIRAL","source": "drugbank-lite"}
+  ],
+  "relations": [
+    {"id": "R1", "subject_id": "OSELTAMIVIR", "predicate": "treats", "object_id": "FLU", "source": "drugbank-lite"},
+    {"id": "R2", "subject_id": "COLD",        "predicate": "has_symptom", "object_id": "CHILLS", "source": "local-terms"}
+  ],
+  "mappings": [
+    {"source": "umls-lite",  "external_id": "UMLS:COLD",  "concept_id": "COLD",  "term": "Common Cold"},
+    {"source": "mesh-lite",  "external_id": "MSH:D003120","concept_id": "FLU",  "term": "Influenza"},
+    {"source": "local-db",   "external_id": "LOC:42",     "concept_id": "OSELTAMIVIR", "term": "Tamiflu"},
+    {"source": "mesh-lite",  "external_id": "X:7788",     "concept_id": "OSELTAMIVIR", "term": "oseltamivir"},
+    {"source": "umls-lite",  "external_id": "X:7788",     "concept_id": "ANTIVIRAL",   "term": "antiviral agent"}
+  ]
+}

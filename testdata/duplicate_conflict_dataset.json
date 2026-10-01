@@ -1,0 +1,11 @@
+{
+  "name": "duplicate-sample",
+  "concepts": [
+    {"id": "A", "label": "alpha",       "source": "src-x"},
+    {"id": "A", "label": "alpha-renamed","source": "src-y"}
+  ],
+  "synonyms": [],
+  "parents": [],
+  "relations": [],
+  "mappings": []
+}
