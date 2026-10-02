@@ -2,9 +2,9 @@ package kg
 
 import "sort"
 
-// buildFromDataset 以 base 为起点导入一个完整数据集（导入即全量替换概念/边/关系/映射）。
+// buildFromDataset 以 base 为起点导入一个完整数据集（导入即全量替换概念/边/关系/映射/术语）。
 // 返回的快照数据仍需经过 validateData 校验。
-func buildFromDataset(base *snapshotData, version int64, ds Dataset) (*snapshotData, []*ValidationError, []MappingConflict) {
+func buildFromDataset(base *snapshotData, version int64, ds Dataset) (*snapshotData, []*ValidationError, []MappingConflict, []TermConflict) {
 	d := newSnapshotData(version)
 	verrs := make([]*ValidationError, 0)
 
@@ -36,13 +36,17 @@ func buildFromDataset(base *snapshotData, version int64, ds Dataset) (*snapshotD
 	for _, m := range ds.Mappings {
 		addMapping(d, m)
 	}
+	for _, t := range ds.Terms {
+		addTerm(d, t)
+	}
 
 	conflicts := computeMappingConflicts(d)
-	return d, verrs, conflicts
+	termConflicts := computeTermConflicts(d)
+	return d, verrs, conflicts, termConflicts
 }
 
 // buildFromRevision 以 base 为起点应用增量修订。
-func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapshotData, []*ValidationError, []MappingConflict) {
+func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapshotData, []*ValidationError, []MappingConflict, []TermConflict) {
 	d := base.clone(version)
 	verrs := make([]*ValidationError, 0)
 
@@ -57,6 +61,22 @@ func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapsh
 				InvalidatedAt: version,
 				Reason:        "concept_renamed",
 			})
+			// 先前基于该概念得出的术语结论随改名一并标记失效，可被识别。
+			affectedTerms := append([]TermAssignment(nil), d.conceptTerms[rn.ID]...)
+			sort.SliceStable(affectedTerms, func(i, j int) bool {
+				if affectedTerms[i].Normalized != affectedTerms[j].Normalized {
+					return affectedTerms[i].Normalized < affectedTerms[j].Normalized
+				}
+				return affectedTerms[i].Source < affectedTerms[j].Source
+			})
+			for _, t := range affectedTerms {
+				d.invalidations = append(d.invalidations, StalenessInfo{
+					Kind: "term", SubjectID: rn.ID,
+					Detail:        "term '" + t.Normalized + "' -> " + rn.ID + " invalidated by rename",
+					InvalidatedAt: version,
+					Reason:        "concept_renamed",
+				})
+			}
 			rec.concept.Name = rn.NewName
 			if rn.Source != "" {
 				rec.sources[rn.Source] = true
@@ -92,9 +112,16 @@ func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapsh
 	for _, m := range rev.UpsertMappings {
 		addMapping(d, m)
 	}
+	for _, t := range rev.DeleteTerms {
+		removeTerm(d, t)
+	}
+	for _, t := range rev.UpsertTerms {
+		addTerm(d, t)
+	}
 
 	conflicts := computeMappingConflicts(d)
-	return d, verrs, conflicts
+	termConflicts := computeTermConflicts(d)
+	return d, verrs, conflicts, termConflicts
 }
 
 func upsertConcept(d *snapshotData, c Concept) *ValidationError {
@@ -320,6 +347,28 @@ func deleteConcept(d *snapshotData, id string) {
 		}
 	}
 	delete(d.conceptMappings, id)
+
+	// 级联删除原始文本术语归属，并记录失效结论。
+	termKeys := make([]string, 0)
+	for _, t := range d.conceptTerms[id] {
+		d.invalidations = append(d.invalidations, StalenessInfo{
+			Kind: "term", SubjectID: id,
+			Detail:        "term '" + t.Normalized + "' -> " + id + " removed",
+			InvalidatedAt: d.version, Reason: "concept_deleted",
+		})
+		termKeys = append(termKeys, t.Normalized)
+		d.termsByKey[t.Normalized] = removeTermMatch(d.termsByKey[t.Normalized],
+			TermAssignment{Normalized: t.Normalized, ConceptID: id, Source: t.Source})
+	}
+	for _, key := range termKeys {
+		if len(d.termsByKey[key]) == 0 {
+			delete(d.termsByKey, key)
+			delete(d.conflictedTerms, key)
+		}
+	}
+	delete(d.conceptTerms, id)
+	// 级联删除改变了术语归属，重算冲突标记。
+	computeTermConflicts(d)
 }
 
 // computeMappingConflicts 重新计算全部外部标识的映射冲突，结果顺序确定。

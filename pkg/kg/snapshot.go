@@ -32,6 +32,12 @@ type snapshotData struct {
 	conceptMappings map[string][]MappingAssignment
 	// conflictedTargets 记录处于冲突状态的外部标识及其冲突类型。
 	conflictedTargets map[string]ConflictType
+	// termsByKey[normalizedTerm] = 该归一化术语的全部来源归属
+	termsByKey map[string][]TermAssignment
+	// conceptTerms[id] 指向该概念的全部术语归属
+	conceptTerms map[string][]TermAssignment
+	// conflictedTerms 记录处于冲突状态的归一化术语及其冲突类型。
+	conflictedTerms map[string]ConflictType
 	// invalidations 记录本版本相较其基版本被判定失效的旧结论。
 	invalidations []StalenessInfo
 }
@@ -57,6 +63,9 @@ func newSnapshotData(version int64) *snapshotData {
 		mappingsByTarget:   map[string][]MappingAssignment{},
 		conceptMappings:    map[string][]MappingAssignment{},
 		conflictedTargets:  map[string]ConflictType{},
+		termsByKey:         map[string][]TermAssignment{},
+		conceptTerms:       map[string][]TermAssignment{},
+		conflictedTerms:    map[string]ConflictType{},
 	}
 }
 
@@ -118,6 +127,15 @@ func (d *snapshotData) clone(version int64) *snapshotData {
 	}
 	for k, v := range d.conflictedTargets {
 		n.conflictedTargets[k] = v
+	}
+	for k, v := range d.termsByKey {
+		n.termsByKey[k] = append([]TermAssignment(nil), v...)
+	}
+	for k, v := range d.conceptTerms {
+		n.conceptTerms[k] = append([]TermAssignment(nil), v...)
+	}
+	for k, v := range d.conflictedTerms {
+		n.conflictedTerms[k] = v
 	}
 	n.invalidations = append(n.invalidations, d.invalidations...)
 	return n

@@ -44,6 +44,11 @@ func detectDangling(d *snapshotData) []*ValidationError {
 			add(m.ConceptID, "mapping concept_id")
 		}
 	}
+	for _, assignments := range d.termsByKey {
+		for _, t := range assignments {
+			add(t.ConceptID, "term concept_id")
+		}
+	}
 
 	if len(missing) == 0 {
 		return nil

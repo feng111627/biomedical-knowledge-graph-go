@@ -274,6 +274,7 @@ func mappingConflictFor(d *snapshotData, targetID string) *MappingConflict {
 //   - "ancestor" id = "child:ancestor"
 //   - "descendant" id = "parent:descendant"
 //   - "mapping"  id = target_id
+//   - "term"     id = 原始或归一化术语（先按原始键，再按归一化键查找）
 func (r *Reasoner) Explain(kind, id string) []Evidence {
 	d := r.snap()
 	switch kind {
@@ -305,6 +306,23 @@ func (r *Reasoner) Explain(kind, id string) []Evidence {
 		for _, m := range assignments {
 			out = append(out, Evidence{Source: m.Source, Kind: "mapping",
 				Detail: m.TargetID + " -> " + m.ConceptID})
+		}
+		sort.SliceStable(out, func(i, j int) bool {
+			if out[i].Source != out[j].Source {
+				return out[i].Source < out[j].Source
+			}
+			return out[i].Detail < out[j].Detail
+		})
+		return out
+	case "term":
+		assignments := d.termsByKey[id]
+		if assignments == nil {
+			assignments = d.termsByKey[NormalizeTerm(id)]
+		}
+		out := make([]Evidence, 0, len(assignments))
+		for _, t := range assignments {
+			out = append(out, Evidence{Source: t.Source, Kind: "term",
+				Detail: "'" + t.Normalized + "' -> " + t.ConceptID})
 		}
 		sort.SliceStable(out, func(i, j int) bool {
 			if out[i].Source != out[j].Source {

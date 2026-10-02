@@ -55,6 +55,13 @@ func TestConcurrent_ReadsNeverSeeHalfState(t *testing.T) {
 						errCh <- fmt.Errorf("half-state: D050 visible without ancestor D001: %+v", anc)
 						return
 					}
+					// 概念可见时，同批写入的术语归属也必须一致可见。
+					tres := r.ResolveTermIn(snap, "  NEWCONCEPT ")
+					if tres == nil || tres.Conflict != nil ||
+						len(tres.Candidates) != 1 || tres.Candidates[0].Assignment.ConceptID != "D050" {
+						errCh <- fmt.Errorf("half-state: D050 visible without its term assignment: %+v", tres)
+						return
+					}
 				}
 			}
 		}(i)
@@ -67,6 +74,7 @@ func TestConcurrent_ReadsNeverSeeHalfState(t *testing.T) {
 			BaseVersion:     last,
 			UpsertConcepts:  []kg.Concept{{ID: "D050", Name: "NewConcept", Source: "s"}},
 			UpsertHierarchy: []kg.HierarchyEdge{{Parent: "D001", Child: "D050", Source: "s"}},
+			UpsertTerms:     []kg.TermAssignment{{Term: "NewConcept", ConceptID: "D050", Source: "s"}},
 		})
 		if err != nil {
 			t.Fatalf("add revision: %v", err)

@@ -40,11 +40,18 @@ type mappingDTO struct {
 	Source    string `json:"source"`
 }
 
+type termDTO struct {
+	Term      string `json:"term"`
+	ConceptID string `json:"concept_id"`
+	Source    string `json:"source"`
+}
+
 type datasetDTO struct {
 	Concepts  []conceptDTO   `json:"concepts"`
 	Hierarchy []hierarchyDTO `json:"hierarchy"`
 	Relations []relationDTO  `json:"relations"`
 	Mappings  []mappingDTO   `json:"mappings"`
+	Terms     []termDTO      `json:"terms"`
 }
 
 // LoadDataset 从 JSON 字节加载数据集。
@@ -60,6 +67,7 @@ func LoadDataset(raw []byte) (Dataset, error) {
 		Hierarchy: make([]HierarchyEdge, 0, len(dto.Hierarchy)),
 		Relations: make([]EntityRelation, 0, len(dto.Relations)),
 		Mappings:  make([]MappingAssignment, 0, len(dto.Mappings)),
+		Terms:     make([]TermAssignment, 0, len(dto.Terms)),
 	}
 
 	for i, c := range dto.Concepts {
@@ -106,6 +114,24 @@ func LoadDataset(raw []byte) (Dataset, error) {
 		}
 		ds.Mappings = append(ds.Mappings, MappingAssignment{
 			TargetID: m.TargetID, ConceptID: m.ConceptID, Source: m.Source,
+		})
+	}
+	for i, t := range dto.Terms {
+		if t.Term == "" || t.ConceptID == "" {
+			return Dataset{}, fmt.Errorf("terms[%d]: term and concept_id are required", i)
+		}
+		if t.Source == "" {
+			return Dataset{}, fmt.Errorf("terms[%d]: source is required", i)
+		}
+		normalized := NormalizeTerm(t.Term)
+		if normalized == "" {
+			return Dataset{}, fmt.Errorf("terms[%d]: term must contain non-whitespace characters", i)
+		}
+		ds.Terms = append(ds.Terms, TermAssignment{
+			Term:       t.Term,
+			Normalized: normalized,
+			ConceptID:  t.ConceptID,
+			Source:     t.Source,
 		})
 	}
 	return ds, nil

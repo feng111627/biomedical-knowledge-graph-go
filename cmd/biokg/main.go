@@ -36,13 +36,15 @@ func main() {
 			printReject(err)
 			os.Exit(1)
 		}
-		fmt.Printf("IMPORTED version=%d conflicts=%d\n", res.Version, len(res.Conflicts))
+		fmt.Printf("IMPORTED version=%d conflicts=%d term_conflicts=%d\n",
+			res.Version, len(res.Conflicts), len(res.TermConflicts))
 		printConflicts(res.Conflicts)
+		printTermConflicts(res.TermConflicts)
 
 	case "query":
 		fs := flag.NewFlagSet("query", flag.ExitOnError)
 		file := fs.String("file", "", "dataset JSON file")
-		kind := fs.String("kind", "concept", "concept|search|children|parents|ancestors|descendants|relations|mapping|explain|stale")
+		kind := fs.String("kind", "concept", "concept|search|children|parents|ancestors|descendants|relations|mapping|term|explain|stale")
 		id := fs.String("id", "", "concept id / text / target_id / explain composite id")
 		rel := fs.String("rel", "", "relation type filter")
 		_ = fs.Parse(os.Args[2:])
@@ -131,8 +133,31 @@ func runQuery(r *kg.Reasoner, kind, id, rel string) {
 		for _, e := range r.Explain("mapping", id) {
 			fmt.Printf("  [%s] %s: %s\n", e.Kind, e.Source, e.Detail)
 		}
+	case "term":
+		res := r.ResolveTerm(id)
+		if res == nil {
+			fmt.Printf("NO TERM for %q\n", id)
+			return
+		}
+		fmt.Printf("TERM input=%q normalized=%q\n", res.Query, res.NormalizedQuery)
+		for _, v := range res.Candidates {
+			mark := "OK"
+			if v.Conflicted {
+				mark = "CONFLICTED"
+			}
+			fmt.Printf("TERMMATCH %s -> %s source=%s [%s]\n",
+				res.MatchedTerm, v.Assignment.ConceptID, v.Assignment.Source, mark)
+		}
+		if res.Conflict != nil {
+			fmt.Printf("CONFLICT type=%s source=%s term=%q\n",
+				res.Conflict.Type, res.Conflict.Source, res.Conflict.Term)
+		}
+		fmt.Println("EVIDENCE:")
+		for _, e := range r.Explain("term", id) {
+			fmt.Printf("  [%s] %s: %s\n", e.Kind, e.Source, e.Detail)
+		}
 	case "explain":
-		// id 形如 ancestor:D001:D010 或 mapping:TARGET
+		// id 形如 ancestor:D001:D010、mapping:TARGET 或 term:原始术语
 		parts := strings.SplitN(id, ":", 2)
 		for _, e := range r.Explain(parts[0], parts[1]) {
 			fmt.Printf("  [%s] %s: %s\n", e.Kind, e.Source, e.Detail)
@@ -177,6 +202,17 @@ func printConflicts(cs []kg.MappingConflict) {
 	}
 }
 
+func printTermConflicts(cs []kg.TermConflict) {
+	for _, c := range cs {
+		targets := make([]string, len(c.Targets))
+		for i, t := range c.Targets {
+			targets[i] = t.Source + "->" + t.ConceptID
+		}
+		fmt.Printf("TERM CONFLICT type=%s source=%s term=%q targets=[%s]\n",
+			c.Type, c.Source, c.Term, strings.Join(targets, ", "))
+	}
+}
+
 func printReject(err error) {
 	if re, ok := err.(*kg.RejectError); ok {
 		for _, ve := range re.Errors {
@@ -212,6 +248,7 @@ usage:
   biokg import -file testdata/ontology.json
   biokg query  -file testdata/ontology.json -kind ancestors -id D001
   biokg query  -file testdata/ontology.json -kind mapping   -id SNOMED:73211009
+  biokg query  -file testdata/term_conflicts.json -kind term -id "  CoLd "
   biokg demo`)
 }
 

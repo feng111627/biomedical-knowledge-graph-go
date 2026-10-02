@@ -26,8 +26,9 @@ func NewStore() *Store {
 
 // ImportResult 是一次导入的结果。
 type ImportResult struct {
-	Version   int64
-	Conflicts []MappingConflict
+	Version       int64
+	Conflicts     []MappingConflict
+	TermConflicts []TermConflict
 }
 
 // Import 原子地全量导入一个数据集，产生新版本。
@@ -41,13 +42,13 @@ func (s *Store) Import(ctx context.Context, ds Dataset) (*ImportResult, error) {
 		return nil, err
 	}
 	version := s.nextVersion
-	candidate, buildErrs, conflicts := buildFromDataset(newSnapshotData(version), version, ds)
+	candidate, buildErrs, conflicts, termConflicts := buildFromDataset(newSnapshotData(version), version, ds)
 	buildErrs = append(buildErrs, validateData(candidate)...)
 	if len(buildErrs) > 0 {
 		return nil, &RejectError{Errors: sortErrors(buildErrs)}
 	}
 	s.commit(candidate)
-	return &ImportResult{Version: version, Conflicts: conflicts}, nil
+	return &ImportResult{Version: version, Conflicts: conflicts, TermConflicts: termConflicts}, nil
 }
 
 // Revision 表示对当前图谱的一次增量修订。
@@ -69,6 +70,9 @@ type Revision struct {
 	// UpsertMappings / DeleteMappings 映射增量。
 	UpsertMappings []MappingAssignment
 	DeleteMappings []MappingAssignment
+	// UpsertTerms / DeleteTerms 原始文本术语增量。
+	UpsertTerms []TermAssignment
+	DeleteTerms []TermAssignment
 }
 
 // Rename 表示概念改名（ID 保持不变，规范名变更）。
@@ -80,8 +84,9 @@ type Rename struct {
 
 // RevisionResult 是一次修订的结果。
 type RevisionResult struct {
-	Version   int64
-	Conflicts []MappingConflict
+	Version       int64
+	Conflicts     []MappingConflict
+	TermConflicts []TermConflict
 }
 
 // ApplyRevision 在当前快照上原子地应用增量修订。
@@ -103,13 +108,13 @@ func (s *Store) ApplyRevision(ctx context.Context, rev Revision) (*RevisionResul
 	}
 
 	version := s.nextVersion
-	candidate, buildErrs, conflicts := buildFromRevision(s.current, version, rev)
+	candidate, buildErrs, conflicts, termConflicts := buildFromRevision(s.current, version, rev)
 	buildErrs = append(buildErrs, validateData(candidate)...)
 	if len(buildErrs) > 0 {
 		return nil, &RejectError{Errors: sortErrors(buildErrs)}
 	}
 	s.commit(candidate)
-	return &RevisionResult{Version: version, Conflicts: conflicts}, nil
+	return &RevisionResult{Version: version, Conflicts: conflicts, TermConflicts: termConflicts}, nil
 }
 
 func (s *Store) commit(d *snapshotData) {
