@@ -11,7 +11,8 @@ import (
 //	  "concepts":  [{"id":"D001","name":"Diabetes","source":"snomed_demo","synonyms":["DM"]}],
 //	  "hierarchy": [{"parent":"D010","child":"D001","source":"snomed_demo"}],
 //	  "relations": [{"subject":"D020","relation":"treats","object":"D001","source":"snomed_demo"}],
-//	  "mappings":  [{"target_id":"SNOMED:73211009","concept_id":"D001","source":"snomed_demo"}]
+//	  "mappings":  [{"target_id":"SNOMED:73211009","concept_id":"D001","source":"snomed_demo"}],
+//	  "term_mappings": [{"term":"Diabetes","concept_id":"D001","source":"snomed_demo"}]
 //	}
 
 type conceptDTO struct {
@@ -40,11 +41,18 @@ type mappingDTO struct {
 	Source    string `json:"source"`
 }
 
+type termMappingDTO struct {
+	Term      string `json:"term"`
+	ConceptID string `json:"concept_id"`
+	Source    string `json:"source"`
+}
+
 type datasetDTO struct {
-	Concepts  []conceptDTO   `json:"concepts"`
-	Hierarchy []hierarchyDTO `json:"hierarchy"`
-	Relations []relationDTO  `json:"relations"`
-	Mappings  []mappingDTO   `json:"mappings"`
+	Concepts     []conceptDTO     `json:"concepts"`
+	Hierarchy    []hierarchyDTO   `json:"hierarchy"`
+	Relations    []relationDTO    `json:"relations"`
+	Mappings     []mappingDTO     `json:"mappings"`
+	TermMappings []termMappingDTO `json:"term_mappings"`
 }
 
 // LoadDataset 从 JSON 字节加载数据集。
@@ -106,6 +114,20 @@ func LoadDataset(raw []byte) (Dataset, error) {
 		}
 		ds.Mappings = append(ds.Mappings, MappingAssignment{
 			TargetID: m.TargetID, ConceptID: m.ConceptID, Source: m.Source,
+		})
+	}
+	for i, tm := range dto.TermMappings {
+		if tm.Term == "" || tm.ConceptID == "" {
+			return Dataset{}, fmt.Errorf("term_mappings[%d]: term and concept_id are required", i)
+		}
+		if tm.Source == "" {
+			return Dataset{}, fmt.Errorf("term_mappings[%d]: source is required", i)
+		}
+		if NormalizeTerm(tm.Term) == "" {
+			return Dataset{}, fmt.Errorf("term_mappings[%d]: term normalizes to empty", i)
+		}
+		ds.TermMappings = append(ds.TermMappings, TermAssignment{
+			Term: tm.Term, ConceptID: tm.ConceptID, Source: tm.Source,
 		})
 	}
 	return ds, nil

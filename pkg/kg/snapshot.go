@@ -32,6 +32,13 @@ type snapshotData struct {
 	conceptMappings map[string][]MappingAssignment
 	// conflictedTargets 记录处于冲突状态的外部标识及其冲突类型。
 	conflictedTargets map[string]ConflictType
+	// termMappings 是显式术语映射（原始写法保留，去重后按确定顺序存放）。
+	termMappings []TermAssignment
+	// termIndex 是派生索引：归一术语 -> 全部关联条目（规范名/同义词/显式映射）。
+	// 每次提交时由 rebuildTermIndex 全量重建，保证与数据严格一致。
+	termIndex map[string][]termEntry
+	// conflictedTerms 记录处于冲突状态的归一术语及其冲突类型。
+	conflictedTerms map[string]ConflictType
 	// invalidations 记录本版本相较其基版本被判定失效的旧结论。
 	invalidations []StalenessInfo
 }
@@ -57,6 +64,8 @@ func newSnapshotData(version int64) *snapshotData {
 		mappingsByTarget:   map[string][]MappingAssignment{},
 		conceptMappings:    map[string][]MappingAssignment{},
 		conflictedTargets:  map[string]ConflictType{},
+		termIndex:          map[string][]termEntry{},
+		conflictedTerms:    map[string]ConflictType{},
 	}
 }
 
@@ -119,6 +128,9 @@ func (d *snapshotData) clone(version int64) *snapshotData {
 	for k, v := range d.conflictedTargets {
 		n.conflictedTargets[k] = v
 	}
+	// termIndex/conflictedTerms 是派生结构，由构建流程在提交前重建，这里只复制
+	// 显式术语映射这部分原始状态。
+	n.termMappings = append(n.termMappings, d.termMappings...)
 	n.invalidations = append(n.invalidations, d.invalidations...)
 	return n
 }
@@ -131,4 +143,9 @@ func (s *Snapshot) Ancestors(id string) ([]AncestorPath, bool) {
 // Descendants 在该快照上做后代传递推导。
 func (s *Snapshot) Descendants(id string) ([]AncestorPath, bool) {
 	return DescendantsIn(s.data, id)
+}
+
+// ResolveTerm 在该快照上解析原始文本术语（规则见 NormalizeTerm）。
+func (s *Snapshot) ResolveTerm(raw string) (TermResolution, *TermConflict) {
+	return resolveTermIn(s.data, raw)
 }

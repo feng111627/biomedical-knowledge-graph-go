@@ -43,6 +43,8 @@ type Dataset struct {
 	Hierarchy []HierarchyEdge
 	Relations []EntityRelation
 	Mappings  []MappingAssignment
+	// TermMappings 是原始文本术语到概念的显式归属。
+	TermMappings []TermAssignment
 }
 
 // AncestorPath 记录一个概念的某个祖先及其传递推导路径。

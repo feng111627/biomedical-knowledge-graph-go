@@ -24,6 +24,10 @@ const (
 	ConflictSameSource ConflictType = "same_source_conflict"
 	// ConflictCrossSource 表示不同来源把同一外部标识映射到互斥概念。
 	ConflictCrossSource ConflictType = "cross_source_conflict"
+	// ConflictTermSameSource 表示同一来源把同一（归一后）术语指向多个不同概念。
+	ConflictTermSameSource ConflictType = "term_same_source_conflict"
+	// ConflictTermCrossSource 表示不同来源把同一（归一后）术语指向互斥概念。
+	ConflictTermCrossSource ConflictType = "term_cross_source_conflict"
 )
 
 // ValidationError 描述一条被拒绝的导入/修订及其原因。

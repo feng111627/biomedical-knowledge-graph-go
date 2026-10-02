@@ -4,7 +4,7 @@ import "sort"
 
 // buildFromDataset 以 base 为起点导入一个完整数据集（导入即全量替换概念/边/关系/映射）。
 // 返回的快照数据仍需经过 validateData 校验。
-func buildFromDataset(base *snapshotData, version int64, ds Dataset) (*snapshotData, []*ValidationError, []MappingConflict) {
+func buildFromDataset(base *snapshotData, version int64, ds Dataset) (*snapshotData, []*ValidationError, []MappingConflict, []TermConflict) {
 	d := newSnapshotData(version)
 	verrs := make([]*ValidationError, 0)
 
@@ -36,13 +36,18 @@ func buildFromDataset(base *snapshotData, version int64, ds Dataset) (*snapshotD
 	for _, m := range ds.Mappings {
 		addMapping(d, m)
 	}
+	for _, tm := range ds.TermMappings {
+		addTermMapping(d, tm)
+	}
 
 	conflicts := computeMappingConflicts(d)
-	return d, verrs, conflicts
+	rebuildTermIndex(d)
+	termConflicts := computeTermConflicts(d)
+	return d, verrs, conflicts, termConflicts
 }
 
 // buildFromRevision 以 base 为起点应用增量修订。
-func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapshotData, []*ValidationError, []MappingConflict) {
+func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapshotData, []*ValidationError, []MappingConflict, []TermConflict) {
 	d := base.clone(version)
 	verrs := make([]*ValidationError, 0)
 
@@ -54,6 +59,14 @@ func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapsh
 			d.invalidations = append(d.invalidations, StalenessInfo{
 				Kind: "rename", SubjectID: rn.ID,
 				Detail:        "concept " + rn.ID + " renamed: '" + rec.concept.Name + "' -> '" + rn.NewName + "'",
+				InvalidatedAt: version,
+				Reason:        "concept_renamed",
+			})
+			// 旧规范名对应的术语结论随之失效（同义词/显式映射不受影响）。
+			d.invalidations = append(d.invalidations, StalenessInfo{
+				Kind: "term", SubjectID: rn.ID,
+				Detail: "term '" + rec.concept.Name + "' -> " + rn.ID +
+					" invalidated because concept renamed to '" + rn.NewName + "'",
 				InvalidatedAt: version,
 				Reason:        "concept_renamed",
 			})
@@ -92,9 +105,17 @@ func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapsh
 	for _, m := range rev.UpsertMappings {
 		addMapping(d, m)
 	}
+	for _, tm := range rev.DeleteTermMappings {
+		removeTermMapping(d, tm)
+	}
+	for _, tm := range rev.UpsertTermMappings {
+		addTermMapping(d, tm)
+	}
 
 	conflicts := computeMappingConflicts(d)
-	return d, verrs, conflicts
+	rebuildTermIndex(d)
+	termConflicts := computeTermConflicts(d)
+	return d, verrs, conflicts, termConflicts
 }
 
 func upsertConcept(d *snapshotData, c Concept) *ValidationError {
@@ -234,11 +255,55 @@ func removeMapping(d *snapshotData, m MappingAssignment) {
 	d.conceptMappings[m.ConceptID] = removeMappingMatch(d.conceptMappings[m.ConceptID], m)
 }
 
+// addTermMapping 添加一条显式术语映射（按原始写法去重，保持确定顺序）。
+func addTermMapping(d *snapshotData, tm TermAssignment) {
+	for _, x := range d.termMappings {
+		if x == tm {
+			return
+		}
+	}
+	d.termMappings = append(d.termMappings, tm)
+	sort.SliceStable(d.termMappings, func(i, j int) bool {
+		a, b := d.termMappings[i], d.termMappings[j]
+		if na, nb := NormalizeTerm(a.Term), NormalizeTerm(b.Term); na != nb {
+			return na < nb
+		}
+		if a.Term != b.Term {
+			return a.Term < b.Term
+		}
+		if a.ConceptID != b.ConceptID {
+			return a.ConceptID < b.ConceptID
+		}
+		return a.Source < b.Source
+	})
+}
+
+// removeTermMapping 删除术语映射；Source 为空表示不限来源。
+func removeTermMapping(d *snapshotData, tm TermAssignment) {
+	out := d.termMappings[:0]
+	for _, x := range d.termMappings {
+		if x.Term == tm.Term && x.ConceptID == tm.ConceptID && (tm.Source == "" || x.Source == tm.Source) {
+			continue
+		}
+		out = append(out, x)
+	}
+	d.termMappings = out
+}
+
 func deleteConcept(d *snapshotData, id string) {
-	if _, ok := d.concepts[id]; !ok {
+	rec, ok := d.concepts[id]
+	if !ok {
 		return
 	}
+	deletedName := rec.concept.Name
 	delete(d.concepts, id)
+
+	// 规范名对应的术语结论失效（同义词随概念记录一起消失）。
+	d.invalidations = append(d.invalidations, StalenessInfo{
+		Kind: "term", SubjectID: id,
+		Detail:        "term '" + deletedName + "' -> " + id + " invalidated because concept was deleted",
+		InvalidatedAt: d.version, Reason: "concept_deleted",
+	})
 
 	// 级联删除层级边，并记录失效结论。
 	if parents := d.parentsOf[id]; parents != nil {
@@ -320,6 +385,21 @@ func deleteConcept(d *snapshotData, id string) {
 		}
 	}
 	delete(d.conceptMappings, id)
+
+	// 级联删除指向该概念的显式术语映射，并记录失效结论。
+	keptTerms := d.termMappings[:0]
+	for _, tm := range d.termMappings {
+		if tm.ConceptID == id {
+			d.invalidations = append(d.invalidations, StalenessInfo{
+				Kind: "term_mapping", SubjectID: id,
+				Detail:        "term mapping '" + tm.Term + "' -> " + id + " removed",
+				InvalidatedAt: d.version, Reason: "concept_deleted",
+			})
+			continue
+		}
+		keptTerms = append(keptTerms, tm)
+	}
+	d.termMappings = keptTerms
 }
 
 // computeMappingConflicts 重新计算全部外部标识的映射冲突，结果顺序确定。

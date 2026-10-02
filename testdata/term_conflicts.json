@@ -1,0 +1,25 @@
+{
+  "concepts": [
+    {"id": "D001", "name": "Diabetes", "source": "src1", "synonyms": ["DM"]},
+    {"id": "D002", "name": "Type1Diabetes", "source": "src2", "synonyms": ["T1DM"]},
+    {"id": "D003", "name": "Type2Diabetes", "source": "src1", "synonyms": ["T2DM"]},
+    {"id": "D004", "name": "CommonCold", "source": "src1", "synonyms": ["Cold"]}
+  ],
+  "hierarchy": [
+    {"parent": "D001", "child": "D003", "source": "src1"}
+  ],
+  "relations": [],
+  "mappings": [
+    {"target_id": "EXT:CROSS", "concept_id": "D001", "source": "src1"},
+    {"target_id": "EXT:CROSS", "concept_id": "D003", "source": "src2"}
+  ],
+  "term_mappings": [
+    {"term": "  Diabetes ", "concept_id": "D001", "source": "src1"},
+    {"term": "cold", "concept_id": "D004", "source": "src1"},
+    {"term": "Cold", "concept_id": "D002", "source": "src1"},
+    {"term": "COLD", "concept_id": "D003", "source": "src2"},
+    {"term": "t1dm", "concept_id": "D003", "source": "src1"},
+    {"term": "dm", "concept_id": "D001", "source": "src1"},
+    {"term": "DM", "concept_id": "D001", "source": "src2"}
+  ]
+}

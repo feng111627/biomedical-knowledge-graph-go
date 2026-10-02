@@ -203,6 +203,33 @@ func (r *Reasoner) Relations(id, relation string) []RelationView {
 	return out
 }
 
+// ResolveTerm 把原始文本术语解析到内部概念。
+// 归一规则见 NormalizeTerm；返回归一前后的对应关系与全部命中候选。
+// 处于冲突状态时返回全部候选并附带 TermConflict
+// （term_same_source_conflict / term_cross_source_conflict），不替调用方选择。
+// 概念被删除或改名后，依赖它的术语结论不再出现在结果中（见 StaleConclusions）。
+func (r *Reasoner) ResolveTerm(raw string) (TermResolution, *TermConflict) {
+	return resolveTermIn(r.snap(), raw)
+}
+
+// resolveTermIn 在指定快照数据上解析术语。
+func resolveTermIn(d *snapshotData, raw string) (TermResolution, *TermConflict) {
+	res := TermResolution{Raw: raw, Normalized: NormalizeTerm(raw)}
+	if res.Normalized == "" {
+		return res, nil
+	}
+	entries := d.termIndex[res.Normalized]
+	if len(entries) == 0 {
+		return res, nil
+	}
+	_, res.Conflicted = d.conflictedTerms[res.Normalized]
+	res.Candidates = toCandidates(d, res.Normalized, entries)
+	if res.Conflicted {
+		return res, buildTermConflict(d, res.Normalized)
+	}
+	return res, nil
+}
+
 // ResolveMapping 把外部标识归一到内部概念。
 // 无冲突时返回 1 个 MappingView；处于冲突状态时返回全部候选并附带
 // MappingConflict（same_source_conflict / cross_source_conflict），不替调用方选择。
@@ -274,6 +301,7 @@ func mappingConflictFor(d *snapshotData, targetID string) *MappingConflict {
 //   - "ancestor" id = "child:ancestor"
 //   - "descendant" id = "parent:descendant"
 //   - "mapping"  id = target_id
+//   - "term"     id = 原始文本术语（内部按 NormalizeTerm 归一）
 func (r *Reasoner) Explain(kind, id string) []Evidence {
 	d := r.snap()
 	switch kind {
@@ -312,6 +340,15 @@ func (r *Reasoner) Explain(kind, id string) []Evidence {
 			}
 			return out[i].Detail < out[j].Detail
 		})
+		return out
+	case "term":
+		norm := NormalizeTerm(id)
+		entries := d.termIndex[norm] // 索引内已按确定顺序排序
+		out := make([]Evidence, 0, len(entries))
+		for _, e := range entries {
+			out = append(out, Evidence{Source: e.Source, Kind: e.Origin,
+				Detail: "term '" + e.Raw + "' ~ '" + norm + "' -> " + e.ConceptID})
+		}
 		return out
 	}
 	return nil
