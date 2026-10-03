@@ -61,7 +61,15 @@ func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapsh
 				InvalidatedAt: version,
 				Reason:        "concept_renamed",
 			})
-			// 先前基于该概念得出的术语结论随改名一并标记失效，可被识别。
+			// 先前基于该概念得出的术语结论随改名一并失效：与删除概念一致，
+			// 把它们从解析索引中真正移除（不再出现在正常解析结果里），并逐条
+			// 登记失效原因；仍由当前同义词支撑的归属不属于失效范围，保持有效。
+			keep := map[string]bool{}
+			for syn, srcs := range rec.synonyms {
+				for src := range srcs {
+					keep[NormalizeTerm(syn)+"\x00"+src] = true
+				}
+			}
 			affectedTerms := append([]TermAssignment(nil), d.conceptTerms[rn.ID]...)
 			sort.SliceStable(affectedTerms, func(i, j int) bool {
 				if affectedTerms[i].Normalized != affectedTerms[j].Normalized {
@@ -70,17 +78,37 @@ func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapsh
 				return affectedTerms[i].Source < affectedTerms[j].Source
 			})
 			for _, t := range affectedTerms {
+				if keep[t.Normalized+"\x00"+t.Source] {
+					continue
+				}
 				d.invalidations = append(d.invalidations, StalenessInfo{
 					Kind: "term", SubjectID: rn.ID,
 					Detail:        "term '" + t.Normalized + "' -> " + rn.ID + " invalidated by rename",
 					InvalidatedAt: version,
 					Reason:        "concept_renamed",
 				})
+				d.termsByKey[t.Normalized] = removeTermMatch(d.termsByKey[t.Normalized], t)
+				if len(d.termsByKey[t.Normalized]) == 0 {
+					delete(d.termsByKey, t.Normalized)
+					delete(d.conflictedTerms, t.Normalized)
+				}
+				d.conceptTerms[rn.ID] = removeTermMatch(d.conceptTerms[rn.ID], t)
+			}
+			if len(d.conceptTerms[rn.ID]) == 0 {
+				delete(d.conceptTerms, rn.ID)
 			}
 			rec.concept.Name = rn.NewName
 			if rn.Source != "" {
 				rec.sources[rn.Source] = true
 				rec.nameSources[rn.NewName] = appendUnique(rec.nameSources[rn.NewName], rn.Source)
+			}
+			// 新规范名立即可解析（派生术语）；改名来源缺失时由概念全部来源佐证。
+			nameSources := rec.nameSources[rn.NewName]
+			if len(nameSources) == 0 {
+				nameSources = sortedSourceSet(rec.sources)
+			}
+			for _, src := range nameSources {
+				addTerm(d, TermAssignment{Term: rn.NewName, ConceptID: rn.ID, Source: src})
 			}
 		} else {
 			verrs = append(verrs, &ValidationError{
@@ -179,6 +207,13 @@ func upsertConcept(d *snapshotData, c Concept) *ValidationError {
 		rec.evidences = appendUniqueEvidence(rec.evidences, Evidence{
 			Source: c.Source, Kind: "synonym", Detail: "synonym=" + syn,
 		})
+	}
+	// 概念的规范名与同义词自动成为可解析术语（派生术语），来源即断言它们的来源；
+	// 与显式登记的术语共用同一归一化索引、去重与冲突规则，因此按规范名/同义词
+	// （及其大小写、空白变体）查询与按显式登记术语查询的行为完全一致。
+	addTerm(d, TermAssignment{Term: c.Name, ConceptID: c.ID, Source: c.Source})
+	for _, syn := range c.Synonyms {
+		addTerm(d, TermAssignment{Term: syn, ConceptID: c.ID, Source: c.Source})
 	}
 	return nil
 }

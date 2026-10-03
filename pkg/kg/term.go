@@ -20,6 +20,9 @@ func NormalizeTerm(s string) string {
 // 匹配键为归一化后的术语；同一 (归一术语, 概念, 来源) 视为重复，只保留一条。
 // 同一归属若以多种表面形式出现（如 "Cold" 与 " cold"），保留字典序最小的
 // 原始文本，使登记结果与输入顺序无关。
+// 注意两个索引的去重维度不同：termsByKey 的键已固定归一术语，按 (概念, 来源) 去重；
+// conceptTerms 的键已固定概念，必须按 (归一术语, 来源) 去重，否则同一概念同一来源的
+// 不同术语会互相覆盖，导致级联删除时残留。
 func addTerm(d *snapshotData, t TermAssignment) {
 	key := t.Normalized
 	if key == "" {
@@ -30,19 +33,37 @@ func addTerm(d *snapshotData, t TermAssignment) {
 	}
 	t.Normalized = key
 
-	upsert := func(xs []TermAssignment) []TermAssignment {
-		for i, v := range xs {
-			if v.ConceptID == t.ConceptID && v.Source == t.Source {
-				if t.Term < v.Term {
-					xs[i] = t
-				}
-				return xs
+	byKey := d.termsByKey[key]
+	found := false
+	for i, v := range byKey {
+		if v.ConceptID == t.ConceptID && v.Source == t.Source {
+			if t.Term < v.Term {
+				byKey[i] = t
 			}
+			found = true
+			break
 		}
-		return append(xs, t)
 	}
-	d.termsByKey[key] = upsert(d.termsByKey[key])
-	d.conceptTerms[t.ConceptID] = upsert(d.conceptTerms[t.ConceptID])
+	if !found {
+		byKey = append(byKey, t)
+	}
+	d.termsByKey[key] = byKey
+
+	byConcept := d.conceptTerms[t.ConceptID]
+	found = false
+	for i, v := range byConcept {
+		if v.Normalized == key && v.Source == t.Source {
+			if t.Term < v.Term {
+				byConcept[i] = t
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		byConcept = append(byConcept, t)
+	}
+	d.conceptTerms[t.ConceptID] = byConcept
 }
 
 // removeTerm 移除术语归属。匹配条件为 (归一术语, 概念)；

@@ -36,6 +36,16 @@ func sortedKeys(m map[string][]MappingAssignment) []string {
 	return out
 }
 
+// sortedSourceSet 以来源集合的排序切片形式返回，保证派生登记顺序确定。
+func sortedSourceSet(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func relationLess(a, b EntityRelation) bool {
 	if a.Subject != b.Subject {
 		return a.Subject < b.Subject

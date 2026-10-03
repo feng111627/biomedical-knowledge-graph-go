@@ -72,9 +72,25 @@ testdata/          样例数据（合法、环、悬空、重复冲突、映射�
    `Evidence` 同时保留全部来源。新名称若已是该概念的同义词也允许合并。
 4. **实体关系查询**：按主体或客体检索，可按关系类型过滤。
 5. **标识归一**：`ResolveMapping(target_id)` 返回该外部标识的全部来源归属与概念。
-6. **术语归一**：`ResolveTerm(raw)` 把原始文本经 `NormalizeTerm` 归一后，与登记术语的
+6. **术语归一**：`ResolveTerm(raw)` 把原始文本经 `NormalizeTerm` 归一后，与术语索引的
    归一化键精确匹配，返回归一前后对应（`Query` / `NormalizedQuery` / `MatchedTerm`）、
-   命中的全部概念候选与来源依据。
+   命中的全部概念候选与来源依据。术语索引有两个并行的登记通道（见下）。
+
+### 哪些写法能解析到概念
+
+术语索引 = **显式登记的术语** + **概念自身派生的术语**，两者共用同一归一化键、
+同一去重与冲突规则，解析行为完全一致：
+
+- **显式登记**：数据集 / 修订里 `terms` 通道给出的 `term -> concept_id` 归属。
+- **概念派生**：每个概念的**规范名**和**全部同义词**自动成为可解析术语，
+  来源即断言该名称/同义词的来源；多来源定义同一概念时全部来源都进候选与证据，
+  无需把概念名再抄一遍登记。
+
+因此 `"Cold"`、`"cold"`、`"  Cold  "`、`"COLD"`、`"CoLd"` 的归一化结果都是 `cold`，
+无论命中的是显式登记还是概念派生（规范名或同义词），解析到的概念、归一前后对应、
+候选与来源证据都与使用规范写法查询**完全一致**；多词写法的内部连续空白折叠为单空格
+（`"  Metformin   HCl "` → `metformin hcl`）。需要在固定快照上判断时使用
+`Reasoner.ResolveTermIn(snapshot, raw)`。
 
 ### 术语归一规则（确定性、无 locale/外部依赖）
 
@@ -87,14 +103,13 @@ testdata/          样例数据（合法、环、悬空、重复冲突、映射�
 因此 `"Cold"`、`"cold"`、`"  Cold  "`、`"COLD"`、`"CoLd"` 的归一化结果都是 `cold`，
 解析到同一概念、候选与证据完全一致；`"  Type  2 "` 归一为 `type 2`。
 登记时原始文本原样保留在 `TermAssignment.Term` 中用于审计，匹配只用归一化键。
-**注意**：规则不做同义词/词干/拼写纠错，只做大小写与空白归一——能与不能解析到什么，
-完全由登记数据决定，行为可预期。需要在固定快照上判断时使用
-`Reasoner.ResolveTermIn(snapshot, raw)`。
+**注意**：规则不做词干/拼写纠错，只做大小写与空白归一——能解析到的写法 =
+显式登记的术语 ∪ 概念规范名 ∪ 概念同义词（各自的大小写/空白变体），行为可预期。
 
 ### 冲突规则（映射/术语只**标记**不拒绝，由调用方决定如何处置）
 
-外部标识映射（`mappings`，精确键）与原始文本术语（`terms`，归一化键）是两套相互独立的
-归属索引，**各自独立计算冲突**，冲突类型完全相同：
+外部标识映射（`mappings`，精确键）与原始文本术语（`terms` + 概念派生术语，归一化键）
+是两套相互独立的归属索引，**各自独立计算冲突**，冲突类型完全相同：
 
 | 冲突类型 | 触发条件 | 行为 |
 |---|---|---|
@@ -104,6 +119,8 @@ testdata/          样例数据（合法、环、悬空、重复冲突、映射�
 - 同源冲突**优先于**跨来源冲突报告：同一术语既有同源分裂又有跨来源分歧时，先报同源。
 - 两种冲突一眼分清：同源冲突 `TermConflict.Source` / `MappingConflict.Source` 给出肇事
   来源；跨来源冲突该字段为空，候选按 `(source, concept_id)` 稳定排序全部保留。
+- 概念派生术语与显式登记术语参与同一份冲突判定：例如概念 A 的规范名与另一来源
+  显式登记的同名术语指向不同概念时，同样标出 `cross_source_conflict`，候选全保留。
 - 多来源指向**同一个**概念是"相互印证"，正常归一，并保留全部来源证据。
 - 重复执行的冲突类型、候选集合与顺序**逐字节一致**（键排序 + 候选排序均确定）。
 - 删除冲突一方（`DeleteTerms` / `DeleteMappings`）后，冲突标记在下次提交自动消失；
@@ -113,8 +130,11 @@ testdata/          样例数据（合法、环、悬空、重复冲突、映射�
 
 - 原有 `mappings` 的归一与冲突行为**完全不变**：键仍是未归一的精确 `target_id`，
   既有用例（`TestMapping_*` 等）全部保留且不回归。
-- `terms` 是新增的并列数据通道，走相同的导入/修订/快照/回滚机制；同一概念可同时拥有
-  标识映射与术语归属，两者互不干扰（一侧出现冲突不影响另一侧的解析结论）。
+- `terms` 是并列的数据通道，走相同的导入/修订/快照/回滚机制；概念派生术语
+  （规范名/同义词）自动登记，无需也不强制在 `terms` 里重复抄写——重复抄写会按
+  `(归一术语, 概念, 来源)` 去重合并，不会产生额外候选。
+- 同一概念可同时拥有标识映射、显式术语与派生术语，三者互不干扰
+  （一侧出现冲突不影响另一侧的解析结论）。
 - 术语归属引用不存在的概念时同样按 `dangling_reference` 整体拒绝导入/修订。
 
 ## 一致性语义（导入 / 修订要么全成，要么全不成）
@@ -144,13 +164,16 @@ testdata/          样例数据（合法、环、悬空、重复冲突、映射�
 
 ### 过期结论失效
 
-- **删除概念**：级联删除相关层级边、实体关系、标识映射与**术语归属**；这些依赖项登记为
-  失效结论（`StaleConclusions`，含 `hierarchy/relation/mapping/term`、失效版本与
-  `concept_deleted`），并且不会再出现在正常查询结果中（`ResolveTerm` 返回 nil）。
-- **改名**：概念 ID 不变、规范名更新，并登记一条 `rename` / `concept_renamed` 失效记录；
-  先前依赖该概念的每条术语结论也登记一条 `term` / `concept_renamed` 失效记录，可被识别，
-  不会被当成仍然有效的新结论。
-- 回滚到旧版本后，这些结论随快照整体恢复（术语解析结果一起退回）。
+- **删除概念**：级联删除相关层级边、实体关系、标识映射与**术语归属**（含派生术语）；
+  这些依赖项登记为失效结论（`StaleConclusions`，含 `hierarchy/relation/mapping/term`、
+  失效版本与 `concept_deleted`），并且不会再出现在正常查询结果中（`ResolveTerm` 返回 nil）。
+- **改名**：与删除保持一致——先前由该概念得出的术语结论（旧规范名的派生归属与
+  显式登记的归属）从解析索引中移除，**不再出现在正常解析结果里**，并逐条登记
+  `term` / `concept_renamed` 失效记录（能看出哪条作废、因为什么作废）；
+  概念本身的改名登记一条 `rename` / `concept_renamed` 记录。新规范名立即可解析；
+  仍由当前同义词支撑的术语归属不属于失效范围，保持有效且不出现在失效记录里。
+- 回滚到旧版本后，这些结论随快照整体恢复（术语解析结果一起退回：
+  旧名恢复可解析、新名随之消失）。
 
 ## 本地验证
 
@@ -176,6 +199,10 @@ go run ./cmd/biokg query -file testdata/mapping_conflicts.json -kind mapping -id
 
 # 术语归一（大小写/前后空白不敏感，结果与规范写法一致）
 go run ./cmd/biokg query -file testdata/term_conflicts.json -kind term -id "  CoLd "
+# 概念规范名 / 同义词无需显式登记即可解析（派生术语，来源即断言来源）
+go run ./cmd/biokg query -file testdata/ontology.json -kind term -id " DIABETES "
+go run ./cmd/biokg query -file testdata/ontology.json -kind term -id "  Metformin   HCl "
+go run ./cmd/biokg query -file testdata/ontology.json -kind term -id t2dm
 # 术语冲突（同源 / 跨来源，CONFLICTED 标记 + 候选全保留）
 go run ./cmd/biokg query -file testdata/term_conflicts.json -kind term -id "t:samesrc"
 go run ./cmd/biokg query -file testdata/term_conflicts.json -kind term -id "T:CROSS"
@@ -195,12 +222,16 @@ go run ./cmd/biokg demo
 | `TestImport_DuplicateConflictingDefinitionRejected`、`TestImport_SameSourceDuplicateNameConflict` | 跨来源与同来源重复冲突定义 |
 | `TestMapping_*` | 同源冲突、跨来源冲突、一致映射、确定性、冲突解除 |
 | `TestTerm_NormalizationIsCaseAndWhitespaceInsensitive` | Cold/cold/前后空白等写法解析到同一概念、空白折叠规则 |
+| `TestTerm_ConceptNameResolvesWithoutRegistration` | 规范名无需登记即可解析，变体结果与规范写法逐字节一致，来源证据齐全 |
+| `TestTerm_SynonymResolvesWithoutRegistration` | 同义词（含多词、内部空白折叠）直接解析；多来源同义词候选齐全；重复执行一致 |
 | `TestTerm_SameSourceConflict` / `..._CrossSourceConflict` | 两类术语冲突分别标记、肇事来源/全部候选完整保留 |
 | `TestTerm_AgreementResolvesWithEvidence` / `..._UnknownTerm...` | 多来源一致归一并保留证据；未登记术语返回 nil |
 | `TestTerm_ConflictDeterministicAcrossRepeats` | 重复解析冲突类型与候选顺序完全一致 |
-| `TestTerm_CoexistsWithExternalIDMapping` | 术语与标识映射同时存在、互不影响，原映射行为不回归 |
+| `TestTerm_CoexistsWithExternalIDMapping` / `TestTerm_DerivedTermsCoexistWithMappings` | 显式/派生术语与标识映射同时存在、互不影响，原映射行为不回归 |
+| `TestTerm_DerivedTermConflictDeterministic` | 派生术语与显式术语分歧同样标记跨来源冲突，候选全保留、重复执行一致 |
 | `TestTerm_DeleteConceptInvalidatesAndRemovesTerm` | 删除概念致术语失效、登记 stale、回滚后恢复 |
-| `TestTerm_RenameConceptInvalidatesTermConclusion` | 改名后先前术语结论可被识别为失效 |
+| `TestTerm_RenameConceptInvalidatesTermConclusion` / `TestTerm_RenameRemovesOldTermConclusions` | 改名后旧术语结论不再可解析、失效原因可识别、新名可解析、回滚整体恢复 |
+| `TestTerm_RenameKeepsSynonymBackedTerms` | 改名后仍由同义词支撑的术语保持有效且不误标失效 |
 | `TestTerm_RevisionUpsertDeleteAndConflictClear` | 术语增量增删、一致归并不产生冲突、删一方冲突解除 |
 | `TestTerm_DanglingReferenceRejected` | 术语引用未定义概念时整体拒绝（dangling_reference） |
 | `TestAncestors_*` / `TestDescendants_*` / `TestExplain_*` | 传递推导路径与逐边证据链 |
