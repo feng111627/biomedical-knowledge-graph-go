@@ -42,6 +42,7 @@ func buildFromDataset(base *snapshotData, version int64, ds Dataset) (*snapshotD
 
 	conflicts := computeMappingConflicts(d)
 	termConflicts := computeTermConflicts(d)
+	computeConceptNameTerms(d)
 	return d, verrs, conflicts, termConflicts
 }
 
@@ -61,7 +62,9 @@ func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapsh
 				InvalidatedAt: version,
 				Reason:        "concept_renamed",
 			})
-			// 先前基于该概念得出的术语结论随改名一并标记失效，可被识别。
+			// 与删除概念保持一致：先前基于该概念得出的术语结论随改名一并失效——
+			// 既登记失效记录，也从术语索引中移除，使其不再出现在正常解析结果里
+			// （回滚到改名前版本时随快照整体恢复）。
 			affectedTerms := append([]TermAssignment(nil), d.conceptTerms[rn.ID]...)
 			sort.SliceStable(affectedTerms, func(i, j int) bool {
 				if affectedTerms[i].Normalized != affectedTerms[j].Normalized {
@@ -69,6 +72,7 @@ func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapsh
 				}
 				return affectedTerms[i].Source < affectedTerms[j].Source
 			})
+			termKeys := make([]string, 0, len(affectedTerms))
 			for _, t := range affectedTerms {
 				d.invalidations = append(d.invalidations, StalenessInfo{
 					Kind: "term", SubjectID: rn.ID,
@@ -76,7 +80,17 @@ func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapsh
 					InvalidatedAt: version,
 					Reason:        "concept_renamed",
 				})
+				termKeys = append(termKeys, t.Normalized)
+				d.termsByKey[t.Normalized] = removeTermMatch(d.termsByKey[t.Normalized],
+					TermAssignment{Normalized: t.Normalized, ConceptID: rn.ID, Source: t.Source})
 			}
+			for _, key := range termKeys {
+				if len(d.termsByKey[key]) == 0 {
+					delete(d.termsByKey, key)
+					delete(d.conflictedTerms, key)
+				}
+			}
+			delete(d.conceptTerms, rn.ID)
 			rec.concept.Name = rn.NewName
 			if rn.Source != "" {
 				rec.sources[rn.Source] = true
@@ -121,6 +135,7 @@ func buildFromRevision(base *snapshotData, version int64, rev Revision) (*snapsh
 
 	conflicts := computeMappingConflicts(d)
 	termConflicts := computeTermConflicts(d)
+	computeConceptNameTerms(d)
 	return d, verrs, conflicts, termConflicts
 }
 

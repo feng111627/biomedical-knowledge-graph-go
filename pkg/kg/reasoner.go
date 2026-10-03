@@ -324,6 +324,14 @@ func (r *Reasoner) Explain(kind, id string) []Evidence {
 			out = append(out, Evidence{Source: t.Source, Kind: "term",
 				Detail: "'" + t.Normalized + "' -> " + t.ConceptID})
 		}
+		if len(out) == 0 {
+			// 无登记术语时回退到概念规范名/同义词派生的归属，依据同样给全。
+			entries := d.conceptNameTerms[NormalizeTerm(id)]
+			for _, e := range entries {
+				out = append(out, Evidence{Source: e.Source, Kind: e.Derivation,
+					Detail: "'" + e.Normalized + "' -> " + e.ConceptID})
+			}
+		}
 		sort.SliceStable(out, func(i, j int) bool {
 			if out[i].Source != out[j].Source {
 				return out[i].Source < out[j].Source

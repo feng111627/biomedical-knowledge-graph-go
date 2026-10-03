@@ -38,6 +38,10 @@ type snapshotData struct {
 	conceptTerms map[string][]TermAssignment
 	// conflictedTerms 记录处于冲突状态的归一化术语及其冲突类型。
 	conflictedTerms map[string]ConflictType
+	// conceptNameTerms[归一化键] = 由概念当前规范名/同义词派生的术语归属（按来源展开）。
+	// 纯派生数据：由 concepts 唯一决定，每次构建候选快照时整体重算（见
+	// computeConceptNameTerms），不参与克隆。
+	conceptNameTerms map[string][]conceptTermEntry
 	// invalidations 记录本版本相较其基版本被判定失效的旧结论。
 	invalidations []StalenessInfo
 }
@@ -66,6 +70,7 @@ func newSnapshotData(version int64) *snapshotData {
 		termsByKey:         map[string][]TermAssignment{},
 		conceptTerms:       map[string][]TermAssignment{},
 		conflictedTerms:    map[string]ConflictType{},
+		conceptNameTerms:   map[string][]conceptTermEntry{},
 	}
 }
 

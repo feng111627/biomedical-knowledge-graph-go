@@ -162,6 +162,102 @@ func sortedTermSources(m map[string][]TermAssignment) []string {
 	return out
 }
 
+// conceptTermEntry 是一条由概念自身定义（当前规范名或同义词）派生的术语归属。
+// 与显式登记的 TermAssignment 走同一归一化键空间，但 Derivation 标明派生来源，
+// 便于证据链说明该结论来自概念定义而非独立登记。
+type conceptTermEntry struct {
+	TermAssignment
+	// Derivation 取值 "concept_name"（当前规范名）或 "synonym"（同义词）。
+	Derivation string
+}
+
+// computeConceptNameTerms 从概念记录整体重算派生术语索引，结果顺序确定。
+// 收录范围：每个概念的**当前**规范名（rec.concept.Name）与全部同义词；
+// 历史曾用名（改名前的旧名仍留在 nameSources 中）不参与解析——
+// 改名后旧名不再是该概念的规范写法，其派生结论随改名一并失效。
+// 来源依据：规范名取 nameSources[当前名]（为空时退化为该概念全部来源），
+// 同义词取登记该同义词的来源集合。同一 (归一键, 概念, 来源) 只保留一条，
+// 表面形式保留字典序最小者；概念名优先于同义词。
+func computeConceptNameTerms(d *snapshotData) {
+	out := map[string][]conceptTermEntry{}
+
+	ids := make([]string, 0, len(d.concepts))
+	for id := range d.concepts {
+		ids = append(ids, id)
+	}
+	sortStrings(ids)
+
+	add := func(surface, conceptID, derivation string, sources []string) {
+		key := NormalizeTerm(surface)
+		if key == "" {
+			return // 纯空白名称不构成有效匹配键
+		}
+		for _, src := range sources {
+			out[key] = append(out[key], conceptTermEntry{
+				TermAssignment: TermAssignment{
+					Term: surface, Normalized: key, ConceptID: conceptID, Source: src,
+				},
+				Derivation: derivation,
+			})
+		}
+	}
+
+	for _, id := range ids {
+		rec := d.concepts[id]
+		nameSources := append([]string(nil), rec.nameSources[rec.concept.Name]...)
+		if len(nameSources) == 0 {
+			// 改名未给出来源等情形下，用概念的全部来源作为依据。
+			for s := range rec.sources {
+				nameSources = append(nameSources, s)
+			}
+		}
+		sortStrings(nameSources)
+		add(rec.concept.Name, id, "concept_name", nameSources)
+
+		syns := make([]string, 0, len(rec.synonyms))
+		for syn := range rec.synonyms {
+			syns = append(syns, syn)
+		}
+		sortStrings(syns)
+		for _, syn := range syns {
+			srcs := make([]string, 0, len(rec.synonyms[syn]))
+			for s := range rec.synonyms[syn] {
+				srcs = append(srcs, s)
+			}
+			sortStrings(srcs)
+			add(syn, id, "synonym", srcs)
+		}
+	}
+
+	// 去重与排序：同一 (概念, 来源) 只保留一条，概念名优先于同义词，
+	// 表面形式保留字典序最小者，保证索引与输入顺序无关。
+	for key, entries := range out {
+		sort.SliceStable(entries, func(i, j int) bool {
+			a, b := entries[i], entries[j]
+			if a.ConceptID != b.ConceptID {
+				return a.ConceptID < b.ConceptID
+			}
+			if a.Source != b.Source {
+				return a.Source < b.Source
+			}
+			if a.Derivation != b.Derivation {
+				return a.Derivation < b.Derivation // "concept_name" < "synonym"
+			}
+			return a.Term < b.Term
+		})
+		dedup := entries[:0]
+		for _, e := range entries {
+			if n := len(dedup); n > 0 && dedup[n-1].ConceptID == e.ConceptID &&
+				dedup[n-1].Source == e.Source {
+				continue
+			}
+			dedup = append(dedup, e)
+		}
+		out[key] = dedup
+	}
+	d.conceptNameTerms = out
+}
+
 // ResolveTerm 按原始文本术语解析概念（基于当前已提交快照）。
 // 输入先经 NormalizeTerm 归一，再与登记术语的归一化键精确匹配：
 // 因此 "Cold"、" cold "、"COLD"、"CoLd" 等写法命中同一条登记术语，
@@ -179,23 +275,58 @@ func (r *Reasoner) ResolveTermIn(snap *Snapshot, raw string) *TermResolution {
 }
 
 // ResolveTermIn 在给定快照数据上执行术语解析。
+//
+// 匹配分两层，键都是经过 NormalizeTerm 归一的：
+//  1. 显式登记的术语归属（termsByKey）：存在命中时优先使用，行为与既往完全一致；
+//  2. 概念自身定义派生的归属（conceptNameTerms）：仅当没有任何登记术语命中时
+//     作为回退，使概念的当前规范名与同义词（及其大小写/空白变体）无需重复登记
+//     即可解析。派生命中的候选同样按 (概念, 来源) 稳定排序、附全部来源依据，
+//     并用与登记术语完全相同的规则判定冲突。
+//
+// 因此用规范名的任意大小写/空白变体查询，结果与用规范写法逐字节一致。
 func ResolveTermIn(d *snapshotData, raw string) *TermResolution {
 	key := NormalizeTerm(raw)
-	assignments, ok := d.termsByKey[key]
-	if !ok || len(assignments) == 0 {
+	if assignments, ok := d.termsByKey[key]; ok && len(assignments) > 0 {
+		sorted := append([]TermAssignment(nil), assignments...)
+		sort.SliceStable(sorted, func(i, j int) bool {
+			if sorted[i].ConceptID != sorted[j].ConceptID {
+				return sorted[i].ConceptID < sorted[j].ConceptID
+			}
+			return sorted[i].Source < sorted[j].Source
+		})
+		_, conflicted := d.conflictedTerms[key]
+		views := make([]TermView, 0, len(sorted))
+		for _, a := range sorted {
+			views = append(views, TermView{Assignment: a, Conflicted: conflicted})
+		}
+		res := &TermResolution{
+			Query:           raw,
+			NormalizedQuery: key,
+			MatchedTerm:     key,
+			Candidates:      views,
+		}
+		if conflicted {
+			res.Conflict = termConflictFor(d, key)
+		}
+		return res
+	}
+
+	entries, ok := d.conceptNameTerms[key]
+	if !ok || len(entries) == 0 {
 		return nil
 	}
-	sorted := append([]TermAssignment(nil), assignments...)
+	sorted := append([]conceptTermEntry(nil), entries...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		if sorted[i].ConceptID != sorted[j].ConceptID {
 			return sorted[i].ConceptID < sorted[j].ConceptID
 		}
 		return sorted[i].Source < sorted[j].Source
 	})
-	_, conflicted := d.conflictedTerms[key]
+	derived := make([]TermAssignment, 0, len(sorted))
 	views := make([]TermView, 0, len(sorted))
-	for _, a := range sorted {
-		views = append(views, TermView{Assignment: a, Conflicted: conflicted})
+	for _, e := range sorted {
+		derived = append(derived, e.TermAssignment)
+		views = append(views, TermView{Assignment: e.TermAssignment})
 	}
 	res := &TermResolution{
 		Query:           raw,
@@ -203,15 +334,24 @@ func ResolveTermIn(d *snapshotData, raw string) *TermResolution {
 		MatchedTerm:     key,
 		Candidates:      views,
 	}
-	if conflicted {
-		res.Conflict = termConflictFor(d, key)
+	if c := termConflictFromAssignments(key, derived); c != nil {
+		res.Conflict = c
+		for i := range res.Candidates {
+			res.Candidates[i].Conflicted = true
+		}
 	}
 	return res
 }
 
 // termConflictFor 只读地判定单个归一化术语的冲突类型。
 func termConflictFor(d *snapshotData, key string) *TermConflict {
-	assignments := append([]TermAssignment(nil), d.termsByKey[key]...)
+	return termConflictFromAssignments(key, d.termsByKey[key])
+}
+
+// termConflictFromAssignments 对给定归属列表按统一规则判定冲突：
+// 同源冲突（同一来源指向多个概念）优先于跨来源冲突报告；候选全部保留。
+func termConflictFromAssignments(key string, assignments []TermAssignment) *TermConflict {
+	assignments = append([]TermAssignment(nil), assignments...)
 	sort.SliceStable(assignments, func(i, j int) bool {
 		if assignments[i].Source != assignments[j].Source {
 			return assignments[i].Source < assignments[j].Source
